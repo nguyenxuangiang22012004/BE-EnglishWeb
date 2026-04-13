@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- ENUMS ---
+enum UserRole {
+  user
+  admin
+  teacher
+}
+
+enum FlashcardStatus {
+  unknown
+  learning
+  mastered
+}
+
+enum GroupRole {
+  member
+  admin
+}
+
+enum LessonLevel {
+  beginner
+  intermediate
+  advanced
+}
+
+// --- MODELS ---
+model User {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email           String   @unique @db.VarChar(255)
+  passwordHash    String   @map("password_hash") @db.VarChar(255)
+  name            String   @db.VarChar(100)
+  role            UserRole @default(user)
+  avatarUrl       String?  @map("avatar_url") @db.VarChar(500)
+  currentStreak   Int?     @default(0) @map("current_streak")
+  longestStreak   Int?     @default(0) @map("longest_streak")
+  lastStudyDate   DateTime? @db.Date @map("last_study_date")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  flashcardSets   FlashcardSet[]
+  progress        UserFlashcardProgress[]
+  ownedGroups     StudyGroup[]
+  groupMembers    StudyGroupMember[]
+  groupSetsAdded  StudyGroupSet[]
+  dailyStats      DailyStudyStat[]
+
+  @@map("users")
+}
+
+model FlashcardSet {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?  @db.Text
+  emoji           String?  @db.VarChar(10)
+  ownerId         String?  @map("owner_id") @db.Uuid
+  isPublic        Boolean? @default(false) @map("is_public")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  owner           User?        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  flashcards      Flashcard[]
+  groupSets       StudyGroupSet[]
+
+  @@map("flashcard_sets")
+}
+
+model Flashcard {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  setId           String?  @map("set_id") @db.Uuid
+  word            String   @db.VarChar(255)
+  meaning         String   @db.VarChar(500)
+  pronunciation   String?  @db.VarChar(255)
+  example         String?  @db.Text
+  imageUrl        String?  @map("image_url") @db.VarChar(500)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  set             FlashcardSet?           @relation(fields: [setId], references: [id], onDelete: Cascade)
+  progress        UserFlashcardProgress[]
+
+  @@map("flashcards")
+}
+
+model UserFlashcardProgress {
+  id              String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId          String?         @map("user_id") @db.Uuid
+  flashcardId     String?         @map("flashcard_id") @db.Uuid
+  status          FlashcardStatus? @default(unknown)
+  isFavorite      Boolean?        @default(false) @map("is_favorite")
+  nextReviewDate  DateTime?       @map("next_review_date") @db.Timestamptz
+  lastReviewedAt  DateTime?       @map("last_reviewed_at") @db.Timestamptz
+
+  user            User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flashcard       Flashcard?      @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, flashcardId])
+  @@map("user_flashcard_progress")
+}
+
+model StudyGroup {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?  @db.Text
+  joinCode        String?  @unique @map("join_code") @db.VarChar(50)
+  ownerId         String?  @map("owner_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  owner           User?              @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  members         StudyGroupMember[]
+  sets            StudyGroupSet[]
+
+  @@map("study_groups")
+}
+
+model StudyGroupMember {
+  groupId         String    @map("group_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  role            GroupRole @default(member)
+  joinedAt        DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+
+  group           StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+  @@map("study_group_members")
+}
+
+model StudyGroupSet {
+  groupId         String   @map("group_id") @db.Uuid
+  setId           String   @map("set_id") @db.Uuid
+  addedBy         String?  @map("added_by") @db.Uuid
+  addedAt         DateTime @default(now()) @map("added_at") @db.Timestamptz
+
+  group           StudyGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  set             FlashcardSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+  userAdded       User?         @relation(fields: [addedBy], references: [id], onDelete: SetNull)
+
+  @@id([groupId, setId])
+  @@map("study_group_sets")
+}
+
+model DailyStudyStat {
+  id                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId              String?  @map("user_id") @db.Uuid
+  studyDate           DateTime @db.Date @map("study_date")
+  wordsLearnedCount   Int?     @default(0) @map("words_learned_count")
+  wordsReviewedCount  Int?     @default(0) @map("words_reviewed_count")
+  timeSpentSeconds    Int?     @default(0) @map("time_spent_seconds")
+
+  user                User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, studyDate])
+  @@map("daily_study_stats")
+}
+
+model Lesson {
+  id              String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title           String       @db.VarChar(255)
+  description     String?      @db.Text
+  category        String?      @db.VarChar(100)
+  level           LessonLevel?
+  duration        Int?         // in minutes
+  content         String?      @db.Text
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  quizzes         Quiz[]
+
+  @@map("lessons")
+}
+
+model Quiz {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title           String   @db.VarChar(255)
+  lessonId        String?  @map("lesson_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  lesson          Lesson?    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions       Question[]
+
+  @@map("quizzes")
+}
+
+model Question {
+  id                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  quizId              String?  @map("quiz_id") @db.Uuid
+  questionText        String   @map("question_text") @db.Text
+  options             Json     // Cột JSONB lưu ['A','B','C','D']
+  correctAnswerIndex  Int      @map("correct_answer_index")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  quiz                Quiz?    @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("questions")
+}
